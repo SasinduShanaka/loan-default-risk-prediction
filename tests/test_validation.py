@@ -67,7 +67,7 @@ def test_unexpected_field_is_rejected() -> None:
     assert detail["fields"] == ["unexpected"]
 
 
-@pytest.mark.parametrize("field", ["loan_amount", "Gender"])
+@pytest.mark.parametrize("field", ["term", "loan_limit"])
 def test_nullable_field_accepts_null(field: str) -> None:
     payload = valid_payload()
     payload[field] = None
@@ -75,6 +75,14 @@ def test_nullable_field_accepts_null(field: str) -> None:
     cleaned = validate_payload(payload, SCHEMA)
 
     assert cleaned[field] is None
+
+
+@pytest.mark.parametrize("field", ["loan_amount", "Gender"])
+def test_required_field_rejects_null(field: str) -> None:
+    payload = valid_payload()
+    payload[field] = None
+
+    assert_validation_error(payload, f"{field} may not be null", field=field)
 
 
 @pytest.mark.parametrize("value", [True, False, "296500", math.nan, math.inf, -math.inf])

@@ -72,7 +72,7 @@
     },
     "Gender": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["Female", "Joint", "Male", "Sex Not Available"],
       "default": "Male"
     },
@@ -84,7 +84,7 @@
     },
     "loan_type": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["type1", "type2", "type3"],
       "default": "type1"
     },
@@ -96,25 +96,25 @@
     },
     "Credit_Worthiness": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["l1", "l2"],
       "default": "l1"
     },
     "open_credit": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["nopc", "opc"],
       "default": "nopc"
     },
     "business_or_commercial": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["b/c", "nob/c"],
       "default": "nob/c"
     },
     "loan_amount": {
       "type": "number",
-      "nullable": true,
+      "nullable": false,
       "default": 296500.0
     },
     "term": {
@@ -130,13 +130,13 @@
     },
     "interest_only": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["int_only", "not_int"],
       "default": "not_int"
     },
     "lump_sum_payment": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["lpsm", "not_lpsm"],
       "default": "not_lpsm"
     },
@@ -147,25 +147,25 @@
     },
     "construction_type": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["mh", "sb"],
       "default": "sb"
     },
     "occupancy_type": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["ir", "pr", "sr"],
       "default": "pr"
     },
     "Secured_by": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["home", "land"],
       "default": "home"
     },
     "total_units": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["1U", "2U", "3U", "4U"],
       "default": "1U"
     },
@@ -176,18 +176,18 @@
     },
     "credit_type": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["CIB", "CRIF", "EQUI", "EXP"],
       "default": "CIB"
     },
     "Credit_Score": {
       "type": "number",
-      "nullable": true,
+      "nullable": false,
       "default": 699.0
     },
     "co-applicant_credit_type": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["CIB", "EXP"],
       "default": "CIB"
     },
@@ -210,13 +210,13 @@
     },
     "Region": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["North", "North-East", "central", "south"],
       "default": "North"
     },
     "Security_Type": {
       "type": "category",
-      "nullable": true,
+      "nullable": false,
       "allowed_values": ["Indriect", "direct"],
       "default": "direct"
     },

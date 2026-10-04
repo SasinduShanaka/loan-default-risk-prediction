@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import pickle
 import warnings
 from dataclasses import dataclass
@@ -19,6 +20,24 @@ from sklearn.preprocessing import OneHotEncoder
 from xgboost import XGBClassifier
 
 from backend.config import MODEL_PATH, SCHEMA_PATH
+
+
+# Missing-value evidence recorded by the supplied notebook before preprocessing.
+# The fitted imputers can handle these fields; features with zero observed missing
+# values remain required because no separate business-level policy was supplied.
+NOTEBOOK_MISSING_COUNTS = {
+    "loan_limit": 3_344,
+    "approv_in_adv": 908,
+    "loan_purpose": 134,
+    "term": 41,
+    "Neg_ammortization": 121,
+    "property_value": 15_098,
+    "income": 9_150,
+    "age": 200,
+    "submission_of_application": 200,
+    "LTV": 15_098,
+    "dtir1": 24_121,
+}
 
 
 @dataclass(frozen=True)
@@ -182,13 +201,13 @@ def derive_input_schema(pipeline: Pipeline) -> dict[str, Any]:
         if name in numeric:
             fields[name] = {
                 "type": "number",
-                "nullable": True,
+                "nullable": name in NOTEBOOK_MISSING_COUNTS,
                 "default": _python_scalar(inspection.defaults[name]),
             }
         else:
             fields[name] = {
                 "type": "category",
-                "nullable": True,
+                "nullable": name in NOTEBOOK_MISSING_COUNTS,
                 "allowed_values": inspection.categories[name],
                 "default": _python_scalar(inspection.defaults[name]),
             }
@@ -213,9 +232,36 @@ def _validate_schema(schema: Mapping[str, Any], inspection: PipelineInspection) 
     fields = schema.get("fields")
     if not isinstance(fields, dict) or list(fields) != inspection.expected_features:
         raise RuntimeError("Schema fields do not match fitted pipeline feature order")
-    for name in inspection.categorical_features:
-        if fields[name].get("allowed_values") != inspection.categories[name]:
+
+    numeric = set(inspection.numeric_features)
+    for name in inspection.expected_features:
+        field = fields[name]
+        if not isinstance(field, dict):
+            raise RuntimeError(f"Schema definition for {name} must be an object")
+        expected_type = "number" if name in numeric else "category"
+        if field.get("type") != expected_type:
+            raise RuntimeError(f"Schema type for {name} does not match fitted pipeline")
+        if not isinstance(field.get("nullable"), bool):
+            raise RuntimeError(f"Schema nullable flag for {name} must be boolean")
+        if field["nullable"] != (name in NOTEBOOK_MISSING_COUNTS):
+            raise RuntimeError(
+                f"Schema nullable flag for {name} does not match notebook evidence"
+            )
+        if "default" not in field:
+            raise RuntimeError(f"Schema default for {name} is missing")
+
+        default = field["default"]
+        if expected_type == "number":
+            if (
+                isinstance(default, bool)
+                or not isinstance(default, (int, float))
+                or not math.isfinite(default)
+            ):
+                raise RuntimeError(f"Schema default for {name} is not a finite number")
+        elif field.get("allowed_values") != inspection.categories[name]:
             raise RuntimeError(f"Schema categories for {name} do not match fitted encoder")
+        elif default not in field["allowed_values"]:
+            raise RuntimeError(f"Schema default for {name} is not an allowed value")
 
 
 def _class_key(value: Any) -> str:
@@ -243,7 +289,11 @@ class LoanPredictionService:
         self.ready = True
 
     def predict(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        input_frame = pd.DataFrame([dict(payload)], columns=self.expected_features)
+        normalized = dict(payload)
+        for name in self.inspection.categorical_features:
+            if normalized.get(name) is None:
+                normalized[name] = np.nan
+        input_frame = pd.DataFrame([normalized], columns=self.expected_features)
         predicted_class = _python_scalar(self.pipeline.predict(input_frame)[0])
         result: dict[str, Any] = {
             "predicted_class": predicted_class,

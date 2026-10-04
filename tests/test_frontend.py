@@ -100,6 +100,28 @@ def test_backend_connection_error_becomes_user_facing_message(
         fetch_metadata("http://127.0.0.1:8000")
 
 
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda metadata: metadata["fields"].pop("loan_type"),
+        lambda metadata: metadata["fields"]["loan_type"].pop("allowed_values"),
+        lambda metadata: metadata["fields"]["loan_amount"].update(type="category"),
+        lambda metadata: metadata["numeric_features"].append(["not-a-field"]),
+    ],
+)
+def test_malformed_metadata_structure_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, mutate: Any
+) -> None:
+    metadata = complete_metadata()
+    mutate(metadata)
+    monkeypatch.setattr(
+        requests, "get", lambda url, *, timeout: FakeResponse(200, metadata)
+    )
+
+    with pytest.raises(FrontendServiceError, match="malformed metadata"):
+        fetch_metadata("http://127.0.0.1:8000")
+
+
 def test_structured_validation_error_is_preserved_for_user(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -173,4 +195,26 @@ def test_malformed_success_response_is_rejected(
     with pytest.raises(
         FrontendServiceError, match="malformed response"
     ):
+        submit_prediction("http://127.0.0.1:8000", {"loan_amount": 1})
+
+
+@pytest.mark.parametrize("probability", ["not-a-number", float("nan"), -0.1, 1.1])
+def test_malformed_prediction_probability_is_rejected(
+    monkeypatch: pytest.MonkeyPatch, probability: Any
+) -> None:
+    monkeypatch.setattr(
+        requests,
+        "post",
+        lambda url, *, json, timeout: FakeResponse(
+            200,
+            {
+                "predicted_class": 1,
+                "probability_class_0": 0.2,
+                "probability_class_1": probability,
+                "model": "XGBoost",
+            },
+        ),
+    )
+
+    with pytest.raises(FrontendServiceError, match="malformed response"):
         submit_prediction("http://127.0.0.1:8000", {"loan_amount": 1})

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import numbers
 import os
 from typing import Any
 
@@ -101,6 +103,91 @@ def _error_message(payload: Any, fallback: str) -> str:
     return message
 
 
+def _validate_metadata(payload: Any) -> dict[str, Any]:
+    malformed = FrontendServiceError(
+        "The prediction service returned malformed metadata."
+    )
+    required = {
+        "selected_model",
+        "expected_features",
+        "numeric_features",
+        "categorical_features",
+        "fields",
+    }
+    if not isinstance(payload, dict) or not required.issubset(payload):
+        raise malformed
+
+    expected = payload["expected_features"]
+    numeric = payload["numeric_features"]
+    categorical = payload["categorical_features"]
+    fields = payload["fields"]
+    if (
+        not isinstance(payload["selected_model"], str)
+        or not isinstance(expected, list)
+        or not expected
+        or not all(isinstance(name, str) for name in expected)
+        or len(expected) != len(set(expected))
+        or not isinstance(numeric, list)
+        or not isinstance(categorical, list)
+        or not all(isinstance(name, str) for name in numeric)
+        or not all(isinstance(name, str) for name in categorical)
+        or not set(numeric).isdisjoint(categorical)
+        or set(numeric) | set(categorical) != set(expected)
+        or not isinstance(fields, dict)
+        or set(fields) != set(expected)
+    ):
+        raise malformed
+
+    numeric_names = set(numeric)
+    for name in expected:
+        field = fields[name]
+        expected_type = "number" if name in numeric_names else "category"
+        if (
+            not isinstance(field, dict)
+            or field.get("type") != expected_type
+            or not isinstance(field.get("nullable"), bool)
+            or "default" not in field
+        ):
+            raise malformed
+        default = field["default"]
+        if expected_type == "number":
+            if (
+                isinstance(default, bool)
+                or not isinstance(default, numbers.Real)
+                or not math.isfinite(float(default))
+            ):
+                raise malformed
+        else:
+            allowed = field.get("allowed_values")
+            if not isinstance(allowed, list) or not allowed or default not in allowed:
+                raise malformed
+    return payload
+
+
+def _validate_prediction(payload: Any) -> dict[str, Any]:
+    malformed = FrontendServiceError(
+        "The prediction service returned a malformed response."
+    )
+    if not isinstance(payload, dict) or "predicted_class" not in payload:
+        raise malformed
+    predicted_class = payload["predicted_class"]
+    if isinstance(predicted_class, (dict, list, bool)) or predicted_class is None:
+        raise malformed
+    if "model" in payload and not isinstance(payload["model"], str):
+        raise malformed
+    for key, value in payload.items():
+        if not key.startswith("probability_class_"):
+            continue
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, numbers.Real)
+            or not math.isfinite(float(value))
+            or not 0.0 <= float(value) <= 1.0
+        ):
+            raise malformed
+    return payload
+
+
 def fetch_metadata(base_url: str, timeout: float = 5.0) -> dict[str, Any]:
     try:
         response = requests.get(f"{base_url.rstrip('/')}/metadata", timeout=timeout)
@@ -115,18 +202,7 @@ def fetch_metadata(base_url: str, timeout: float = 5.0) -> dict[str, Any]:
         raise FrontendServiceError(
             _error_message(payload, "Could not load model metadata.")
         )
-    required = {
-        "selected_model",
-        "expected_features",
-        "numeric_features",
-        "categorical_features",
-        "fields",
-    }
-    if not isinstance(payload, dict) or not required.issubset(payload):
-        raise FrontendServiceError(
-            "The prediction service returned malformed metadata."
-        )
-    return payload
+    return _validate_metadata(payload)
 
 
 def submit_prediction(
@@ -147,11 +223,7 @@ def submit_prediction(
         raise FrontendServiceError(
             _error_message(response_payload, "Prediction request failed.")
         )
-    if not isinstance(response_payload, dict) or "predicted_class" not in response_payload:
-        raise FrontendServiceError(
-            "The prediction service returned a malformed response."
-        )
-    return response_payload
+    return _validate_prediction(response_payload)
 
 
 def _render_field(name: str, field: dict[str, Any]) -> Any:

@@ -205,7 +205,7 @@ See [API Documentation](docs/API.md) for exact features, fitted categories, and 
 - The semantic meanings of `Status` 0 and 1 are not verified.
 - Predictions reflect the supplied historical data and fitted model; they may inherit dataset bias or drift over time.
 - The frontend is a local university demonstration and does not include authentication or persistent storage.
-- All fields are marked nullable because the fitted numeric and categorical branches contain imputers; the original business-level required/optional policy was not available.
+- Nulls are accepted only for the 11 fields that contain missing values in the supplied notebook (`loan_limit`, `approv_in_adv`, `loan_purpose`, `term`, `Neg_ammortization`, `property_value`, `income`, `age`, `submission_of_application`, `LTV`, and `dtir1`). Every request must still contain all 28 keys; accepted nulls are imputed by the fitted pipeline.
 - The XGBoost artifact emits a compatibility advisory when loaded by a newer XGBoost runtime, although verified loading and prediction succeed with XGBoost 3.4.1.
 - The model must only be loaded from a trusted source because pickle files can execute code during deserialization.
 

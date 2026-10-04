@@ -43,7 +43,7 @@ Summary of the current fitted model:
 - Raw features: 28
 - Numeric features: 7
 - Categorical features: 21
-- Every field is nullable because each fitted preprocessing branch contains an imputer. A field must still be present in the request; use JSON `null` to request trained-pipeline imputation.
+- Nulls are accepted for 11 fields with observed missing values in the supplied notebook: `loan_limit`, `approv_in_adv`, `loan_purpose`, `term`, `Neg_ammortization`, `property_value`, `income`, `age`, `submission_of_application`, `LTV`, and `dtir1`. All 28 keys remain mandatory; the fitted pipeline imputes accepted nulls.
 
 ### Expected raw feature order
 

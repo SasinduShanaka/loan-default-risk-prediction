@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
@@ -82,6 +83,20 @@ CATEGORICAL_FEATURES = [
     "Security_Type",
 ]
 
+NULLABLE_FEATURES = {
+    "loan_limit",
+    "approv_in_adv",
+    "loan_purpose",
+    "term",
+    "Neg_ammortization",
+    "property_value",
+    "income",
+    "age",
+    "submission_of_application",
+    "LTV",
+    "dtir1",
+}
+
 
 def test_model_artifact_loads_as_expected_fitted_pipeline() -> None:
     assert MODEL_PATH.exists()
@@ -120,9 +135,14 @@ def test_derived_schema_is_json_native_and_matches_pipeline() -> None:
     assert list(schema["fields"]) == EXPECTED_FEATURES
     assert schema["fields"]["loan_amount"] == {
         "type": "number",
-        "nullable": True,
+        "nullable": False,
         "default": 296500.0,
     }
+    assert {
+        name for name, field in schema["fields"].items() if field["nullable"]
+    } == NULLABLE_FEATURES
+    assert schema["fields"]["term"]["nullable"] is True
+    assert schema["fields"]["Gender"]["nullable"] is False
     assert schema["fields"]["Gender"]["allowed_values"][-1] == "Sex Not Available"
     assert schema["fields"]["Gender"]["default"] == "Male"
     assert all(
@@ -141,6 +161,43 @@ def test_service_rejects_schema_with_wrong_feature_order(tmp_path: Path) -> None
 
     with pytest.raises(RuntimeError, match="feature order"):
         LoanPredictionService(MODEL_PATH, invalid_schema_path)
+
+
+def test_service_rejects_schema_with_wrong_field_type(tmp_path: Path) -> None:
+    schema = derive_input_schema(load_pipeline(MODEL_PATH))
+    schema["fields"]["loan_type"]["type"] = "number"
+    invalid_schema_path = tmp_path / "input_schema.json"
+    invalid_schema_path.write_text(json.dumps(schema), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="type for loan_type"):
+        LoanPredictionService(MODEL_PATH, invalid_schema_path)
+
+
+def test_service_rejects_schema_with_wrong_nullability(tmp_path: Path) -> None:
+    schema = derive_input_schema(load_pipeline(MODEL_PATH))
+    schema["fields"]["Gender"]["nullable"] = True
+    invalid_schema_path = tmp_path / "input_schema.json"
+    invalid_schema_path.write_text(json.dumps(schema), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="nullable flag for Gender"):
+        LoanPredictionService(MODEL_PATH, invalid_schema_path)
+
+
+def test_service_normalizes_categorical_null_to_pipeline_missing_marker() -> None:
+    service = LoanPredictionService(MODEL_PATH, SCHEMA_PATH)
+    payload = {
+        name: field["default"] for name, field in service.metadata["fields"].items()
+    }
+    payload["loan_limit"] = None
+    direct_payload = dict(payload)
+    direct_payload["loan_limit"] = np.nan
+
+    result = service.predict(payload)
+    direct_frame = pd.DataFrame([direct_payload], columns=service.expected_features)
+    direct_probabilities = service.pipeline.predict_proba(direct_frame)[0]
+
+    assert result["probability_class_0"] == pytest.approx(direct_probabilities[0])
+    assert result["probability_class_1"] == pytest.approx(direct_probabilities[1])
 
 
 def test_service_predicts_and_maps_probabilities_by_actual_classes() -> None:
