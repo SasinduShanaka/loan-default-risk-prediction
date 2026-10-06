@@ -140,10 +140,10 @@ VALUE_LABELS: dict[str, dict[str, str]] = {
     "loan_limit": {"cf": "Conforming", "ncf": "Non-conforming"},
     "Gender": {"Sex Not Available": "Other"},
     "approv_in_adv": {"pre": "Pre-approved", "nopre": "Not pre-approved"},
-    "open_credit": {"opc": "Has open credit", "nopc": "No open credit"},
+    "open_credit": {"opc": "Open credit", "nopc": "No open credit"},
     "business_or_commercial": {
-        "b/c": "Business or commercial",
-        "nob/c": "Personal",
+        "b/c": "Business/commercial",
+        "nob/c": "Not business/commercial",
     },
     "Neg_ammortization": {
         "neg_amm": "Negative amortization",
@@ -157,9 +157,9 @@ VALUE_LABELS: dict[str, dict[str, str]] = {
         "lpsm": "Lump-sum payment",
         "not_lpsm": "No lump-sum payment",
     },
-    "construction_type": {"sb": "Site built", "mh": "Manufactured home"},
+    "construction_type": {"sb": "Site-built", "mh": "Manufactured home"},
     "occupancy_type": {
-        "pr": "Primary residence",
+        "pr": "Principal residence",
         "sr": "Secondary residence",
         "ir": "Investment property",
     },
@@ -170,8 +170,16 @@ VALUE_LABELS: dict[str, dict[str, str]] = {
         "3U": "3 units",
         "4U": "4 units",
     },
-    "credit_type": {"EQUI": "Equifax", "EXP": "Experian"},
-    "co-applicant_credit_type": {"EXP": "Experian"},
+    "credit_type": {
+        "EXP": "Experian",
+        "EQUI": "Equifax",
+        "CRIF": "CRIF",
+        "CIB": "Credit Information Bureau",
+    },
+    "co-applicant_credit_type": {
+        "EXP": "Experian",
+        "CIB": "Credit Information Bureau",
+    },
     "submission_of_application": {
         "to_inst": "Submitted to institution",
         "not_inst": "Not submitted to institution",
@@ -500,12 +508,8 @@ def initial_answers(metadata: dict[str, Any]) -> dict[str, Any]:
 def missing_required(
     names: list[str], fields: dict[str, Any], answers: dict[str, Any]
 ) -> list[str]:
-    """Non-nullable fields the user has left empty."""
-    return [
-        name
-        for name in names
-        if not fields[name].get("nullable", False) and answers.get(name) is None
-    ]
+    """Fields the form user has left empty, regardless of model nullability."""
+    return [name for name in names if answers.get(name) is None]
 
 
 def parse_number(raw: str) -> tuple[float | None, bool]:
@@ -723,18 +727,17 @@ def _render_number_field(
     """A typed number box.
 
     st.number_input is deliberately avoided: its +/- steppers imply an
-    increment that means nothing for an amount, a score or a ratio, and once
-    it holds a value it cannot be cleared again, so "not provided" would be
-    unreachable for a nullable field.
+    increment that means nothing for an amount, a score or a ratio. A text
+    input also lets the validation message explain when a required value was
+    cleared or entered in an unreadable format.
     """
     key = f"value_{name}"
     if key not in st.session_state:
         st.session_state[key] = format_number_input(stored)
-    nullable = field.get("nullable", False)
     raw = st.text_input(
         input_label(name),
         key=key,
-        placeholder=NOT_PROVIDED_LABEL if nullable else "Required",
+        placeholder="Required",
         help=field_help(name, field),
     )
     value, accepted = parse_number(raw)
@@ -748,16 +751,9 @@ def _render_category_field(
     name: str, field: dict[str, Any], stored: Any
 ) -> tuple[Any, bool]:
     key = f"value_{name}"
-    nullable = field.get("nullable", False)
     options = list(field["allowed_values"])
-    if nullable:
-        # A sentinel option replaces the old "leave blank" checkbox, so every
-        # field is exactly one control tall and the columns line up.
-        options.append(NOT_PROVIDED)
     if key not in st.session_state:
-        if stored is None and nullable:
-            st.session_state[key] = NOT_PROVIDED
-        elif stored in options:
+        if stored in options:
             st.session_state[key] = stored
         else:
             default = field.get("default")
@@ -769,7 +765,7 @@ def _render_category_field(
         format_func=lambda value: display_value(name, value),
         help=field_help(name, field),
     )
-    return (None if chosen == NOT_PROVIDED else chosen), True
+    return chosen, True
 
 
 def _render_field(
