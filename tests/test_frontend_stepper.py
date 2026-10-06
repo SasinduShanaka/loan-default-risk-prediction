@@ -240,8 +240,25 @@ def test_four_columns_halve_the_rows_of_the_largest_step() -> None:
 @pytest.mark.parametrize(
     ("name", "value", "rendered"),
     [
-        ("construction_type", "sb", "Site built"),
+        ("loan_limit", "cf", "Conforming"),
+        ("loan_limit", "ncf", "Non-conforming"),
+        ("approv_in_adv", "pre", "Pre-approved"),
+        ("approv_in_adv", "nopre", "Not pre-approved"),
+        ("open_credit", "opc", "Open credit"),
+        ("open_credit", "nopc", "No open credit"),
+        ("business_or_commercial", "b/c", "Business/commercial"),
+        ("business_or_commercial", "nob/c", "Not business/commercial"),
+        ("occupancy_type", "pr", "Principal residence"),
+        ("occupancy_type", "sr", "Secondary residence"),
         ("occupancy_type", "ir", "Investment property"),
+        ("construction_type", "mh", "Manufactured home"),
+        ("construction_type", "sb", "Site-built"),
+        ("credit_type", "EXP", "Experian"),
+        ("credit_type", "EQUI", "Equifax"),
+        ("credit_type", "CRIF", "CRIF"),
+        ("credit_type", "CIB", "Credit Information Bureau"),
+        ("co-applicant_credit_type", "EXP", "Experian"),
+        ("co-applicant_credit_type", "CIB", "Credit Information Bureau"),
         ("total_units", "2U", "2 units"),
         ("age", "<25", "Under 25"),
         ("loan_type", "type1", "type1"),
@@ -293,13 +310,13 @@ def test_format_answer_presents_review_values_readably(
 # --- required-field tracking ---------------------------------------------
 
 
-def test_missing_required_ignores_nullable_fields() -> None:
+def test_form_requires_values_even_for_nullable_model_fields() -> None:
     metadata = stepper_metadata()
     answers = {"Gender": "Male", "age": None, "loan_amount": None, "term": None}
 
     assert missing_required(
         list(metadata["expected_features"]), metadata["fields"], answers
-    ) == ["loan_amount"]
+    ) == ["age", "loan_amount", "term"]
 
 
 # --- rendering and navigation -------------------------------------------
@@ -315,7 +332,7 @@ def test_only_the_current_step_is_rendered(monkeypatch: pytest.MonkeyPatch) -> N
 def test_no_field_uses_a_separate_blank_checkbox(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Nullability is expressed inside each control, which keeps rows aligned."""
+    """Every value is entered directly in its field, which keeps rows aligned."""
     app = start_app(monkeypatch)
     assert len(app.checkbox) == 0
 
@@ -324,15 +341,16 @@ def test_no_field_uses_a_separate_blank_checkbox(
     assert len(app.checkbox) == 0
 
 
-def test_nullable_dropdown_offers_a_not_provided_option(
+def test_no_dropdown_offers_a_not_provided_option(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = start_app(monkeypatch)
 
-    required, nullable = app.selectbox[0], app.selectbox[1]
+    required, model_nullable = app.selectbox[0], app.selectbox[1]
 
     assert NOT_PROVIDED_LABEL not in required.options
-    assert NOT_PROVIDED_LABEL in nullable.options
+    assert NOT_PROVIDED_LABEL not in model_nullable.options
+    assert model_nullable.value == "25-34"
 
 
 def test_next_advances_and_back_restores_the_earlier_answer(
@@ -376,33 +394,16 @@ def test_answers_from_every_step_reach_the_prediction_request(
     assert app.metric[0].value == "1"
 
 
-def test_not_provided_dropdown_choice_sends_null(
+def test_clearing_model_nullable_number_blocks_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    observed: dict[str, Any] = {}
     app = start_app(monkeypatch)
-    monkeypatch.setattr(requests, "post", recording_post(observed))
-
-    app.selectbox[1].set_value(NOT_PROVIDED).run()
-    app.button(key="step_2").click().run()
-    app.button(key="predict").click().run()
-
-    assert observed["age"] is None
-
-
-def test_cleared_nullable_number_sends_null(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    observed: dict[str, Any] = {}
-    app = start_app(monkeypatch)
-    monkeypatch.setattr(requests, "post", recording_post(observed))
 
     app.button(key="nav_next").click().run()
     app.text_input[1].set_value("").run()
-    app.button(key="nav_next").click().run()
-    app.button(key="predict").click().run()
 
-    assert observed["term"] is None
+    assert any("Term" in block.value for block in app.warning)
+    assert app.button(key="nav_next").disabled
 
 
 def test_clearing_a_required_number_blocks_progress(
