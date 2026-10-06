@@ -1,0 +1,28 @@
+# Mirage, Blaze Orange, Deep Sea Green, and Wild Sand palette.
+[theme]
+base = "light"
+primaryColor = "#FF5B04"
+backgroundColor = "#E4EEF0"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#16232A"
+borderColor = "#C9D7DA"
+linkColor = "#075056"
+baseRadius = "0.5rem"
+buttonRadius = "0.5rem"
+showWidgetBorder = true
+
+greenColor = "#075056"
+greenBackgroundColor = "#E5F1F2"
+greenTextColor = "#075056"
+yellowColor = "#FF5B04"
+yellowBackgroundColor = "#FFF0E8"
+yellowTextColor = "#9C3700"
+redColor = "#BA3947"
+redBackgroundColor = "#FFF0F1"
+redTextColor = "#972C38"
+blueColor = "#075056"
+blueBackgroundColor = "#E4EEF0"
+blueTextColor = "#075056"
+
+chartCategoricalColors = ["#FF5B04", "#075056", "#16232A", "#E4EEF0"]
+chartSequentialColors = ["#E4EEF0", "#B9D0D3", "#8BB1B5", "#5D9297", "#2F7177", "#075056", "#063F44", "#162F35", "#16232A"]
