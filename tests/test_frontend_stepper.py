@@ -370,7 +370,7 @@ def test_field_help_lists_the_codes_a_dropdown_will_send() -> None:
     help_text = field_help("age", metadata["fields"]["age"])
 
     assert help_text is not None
-    assert "Sends one of: <25, 25-34." in help_text
+    assert "Options: Under 25, 25-34." in help_text
 
 
 def test_field_help_for_a_number_has_no_code_list() -> None:
@@ -543,6 +543,49 @@ def test_result_cards_have_responsive_layout_styles() -> None:
     assert "grid-template-columns: 1fr" in STYLES
 
 
+def test_editing_input_clears_previous_prediction(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = start_app(monkeypatch)
+    go_to_review(app)
+    app.button(key="predict").click().run()
+    assert "result" in app.session_state
+    app.button(key="review_back").click().run()
+    app.text_input[0].set_value("invalid").run()
+    assert "result" not in app.session_state
+    assert app.button(key="nav_next").disabled
+    app.text_input[0].set_value("200000").run()
+    app.button(key="nav_next").click().run()
+    assert not any("Predicted repayment outcome" in block.value for block in app.markdown)
+
+
+@pytest.mark.parametrize("index", [0, 1])
+def test_zero_loan_amount_or_term_has_inline_error(monkeypatch: pytest.MonkeyPatch, index: int) -> None:
+    app = start_app(monkeypatch)
+    go_to_loan(app)
+    complete_loan(app)
+    app.text_input[index].set_value("0").run()
+    assert app.button(key="nav_next").disabled
+    assert any("must be greater than zero" in block.value for block in app.caption)
+
+
+def test_invalid_property_clears_calculated_ltv(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = start_app(monkeypatch, metadata=ltv_metadata())
+    go_to_loan(app)
+    complete_loan(app, loan_amount="200000")
+    app.button(key="nav_next").click().run()
+    app.text_input[0].set_value("250000").run()
+    assert app.text_input[1].value == "80.00"
+    app.text_input[0].set_value("invalid").run()
+    assert app.text_input[1].value == ""
+    assert app.button(key="nav_next").disabled
+
+
+def test_currency_labels_use_configured_currency(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LOAN_CURRENCY", "USD")
+    assert input_label("loan_amount") == "Loan Amount (USD)"
+    assert input_label("property_value") == "Property Value (USD)"
+    assert input_label("income") == "Income (USD/month)"
+
+
 def test_missing_model_nullable_number_quietly_blocks_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -705,7 +748,7 @@ def test_unreadable_amount_is_flagged_and_blocks_progress(
     go_to_loan(app)
     app.text_input[0].set_value("about 300k").run()
 
-    assert any("Enter a positive number" in block.value for block in app.caption)
+    assert any("Enter a valid non-negative number" in block.value for block in app.caption)
     assert app.button(key="nav_next").disabled
 
 
