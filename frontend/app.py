@@ -190,18 +190,20 @@ VALUE_LABELS: dict[str, dict[str, str]] = {
 }
 
 FIELD_HELP: dict[str, str] = {
-    "loan_amount": "Principal being requested.",
+    "loan_amount": "Amount being borrowed. Use the same currency as property value and monthly income.",
     "term": "Loan term in months. 360 months is a 30-year loan.",
-    "property_value": "Appraised value of the property.",
-    "income": "Applicant income per month, as recorded in the training data.",
+    "property_value": "Appraised property value, greater than zero. Use the same currency as the loan amount.",
+    "income": "Applicant income for one month, in the same currency as the loan amount.",
     "Credit_Score": "Score reported by the credit bureau.",
-    "LTV": "Loan amount as a percentage of the property value.",
+    "LTV": "Automatically calculated: loan amount ÷ property value × 100. Both amounts must use the same currency.",
     "dtir1": "Monthly debt repayments as a percentage of income.",
-    "loan_type": "Loan category from the training data; the codes are opaque.",
-    "loan_purpose": "Purpose code from the training data; the codes are opaque.",
+    "loan_type": "Select the loan type code recorded on the application. Code descriptions have not been confirmed; check the application records before selecting.",
+    "loan_purpose": "Select the purpose code recorded on the application. Code descriptions have not been confirmed; check the application records before selecting.",
     "Credit_Worthiness": (
-        "Bureau grade from the training data; the codes are opaque."
+        "Select the credit grade code recorded in the credit report. The meanings of these grade codes have not been confirmed."
     ),
+    "Neg_ammortization": "Whether unpaid interest is added to the loan balance when payments do not cover the interest due.",
+    "age": "Select the applicant's age range.",
     "credit_type": "Bureau that supplied the applicant's credit score.",
     "co-applicant_credit_type": "Bureau that reported on the co-applicant.",
     "Region": "Region the property sits in.",
@@ -470,6 +472,12 @@ STYLES = """
 [data-testid="stAlert"] { border-radius: 10px; }
 @media (max-width: 740px) {
     [data-testid="stMainBlockContainer"] { padding: 2.8rem 1rem 1.5rem; }
+    .st-key-assessment [data-testid="stHorizontalBlock"] { flex-direction: column; gap: 0.75rem; }
+    .st-key-assessment [data-testid="stColumn"] { width: 100%; min-width: 0; flex: 1 1 100%; }
+    .loan-result-card { padding: 1rem; }
+    .loan-probability-card { min-width: 0; overflow-wrap: anywhere; }
+    .loan-review-details > div { grid-template-columns: 1fr; gap: 0.2rem; }
+    .loan-review-details dd { text-align: left; }
     .loan-hero { padding: 1.6rem; border-radius: 12px; }
     .loan-hero-meta { gap: 0.6rem 1rem; }
     .st-key-assessment { padding: 1.1rem; }
@@ -510,6 +518,9 @@ def input_label(name: str) -> str:
     """The label shown above an input: compact, with its unit."""
     label = COMPACT_LABELS.get(name, friendly_label(name))
     suffix = LABEL_SUFFIXES.get(name)
+    currency = os.getenv("LOAN_CURRENCY", "").strip()
+    if currency and name in {"loan_amount", "property_value", "income"}:
+        suffix = f"({currency}/month)" if name == "income" else f"({currency})"
     return f"{label} {suffix}" if suffix else label
 
 
@@ -599,7 +610,8 @@ def calculate_ltv(loan_amount: Any, property_value: Any) -> float | None:
             return None
     if float(loan_amount) <= 0 or float(property_value) <= 0:
         return None
-    return float(loan_amount) / float(property_value) * 100
+    ratio = float(loan_amount) / float(property_value) * 100
+    return ratio if math.isfinite(ratio) else None
 
 
 def format_number_input(value: Any) -> str:
@@ -634,12 +646,12 @@ def display_value(name: str, value: Any) -> str:
 
 
 def field_help(name: str, field: dict[str, Any]) -> str | None:
-    """Tooltip text, listing the raw codes a dropdown will send."""
+    """Explain the field using the same readable choices as the form."""
     described = FIELD_HELP.get(name)
     if field["type"] == "number":
         return described
-    codes = ", ".join(str(code) for code in field.get("allowed_values", []))
-    sends = f"Sends one of: {codes}." if codes else ""
+    codes = ", ".join(display_value(name, code) for code in field.get("allowed_values", []))
+    sends = f"Options: {codes}." if codes else ""
     return " ".join(part for part in (described, sends) if part) or None
 
 
@@ -793,6 +805,12 @@ def submit_prediction(
     return _validate_prediction(response_payload)
 
 
+def _clear_prediction() -> None:
+    """An edited input invalidates the previous assessment, even if invalid."""
+    st.session_state.pop("result", None)
+    st.session_state.pop("error", None)
+
+
 def _render_number_field(
     name: str, field: dict[str, Any], stored: Any
 ) -> tuple[Any, bool]:
@@ -811,11 +829,15 @@ def _render_number_field(
         key=key,
         placeholder="Required",
         help=field_help(name, field),
+        on_change=_clear_prediction,
     )
     value, accepted = parse_number(raw)
     if not accepted:
-        st.caption(":red[Enter a positive number, for example 296500.]")
-        return stored, False
+        st.caption(":red[Enter a valid non-negative number, for example 296500.]")
+        return None, False
+    if value is not None and name in {"loan_amount", "term", "property_value"} and value <= 0:
+        st.caption(f":red[{friendly_label(name)} must be greater than zero.]")
+        return None, False
     return value, True
 
 
@@ -834,6 +856,7 @@ def _render_category_field(
         placeholder="Select an option",
         format_func=lambda value: display_value(name, value),
         help=field_help(name, field),
+        on_change=_clear_prediction,
     )
     return chosen, True
 
@@ -875,6 +898,8 @@ def _render_step_indicator(
 
 
 def _render_navigation(current: int, blocked: bool) -> None:
+    if blocked:
+        st.caption("Complete all fields with valid values to continue.")
     back_column, _, next_column = st.columns([1, 2, 1])
     if current > 0 and back_column.button(
         "← Back", key="nav_back", use_container_width=True
@@ -907,8 +932,9 @@ def _render_step_fields(
                         "Loan-to-Value Ratio (%)",
                         value="" if value is None else f"{value:.2f}",
                         disabled=True,
-                        help="Calculated automatically from loan amount and property value.",
+                        help=FIELD_HELP["LTV"],
                     )
+                    st.caption("Automatically calculated")
                     answers[name] = value
                     if value is None:
                         rejected.append(name)
@@ -926,9 +952,9 @@ def _render_review(
     steps: list[tuple[str, list[str]]], answers: dict[str, Any]
 ) -> None:
     summary_fields = [
-        ("loan_amount", "Loan amount"),
-        ("term", "Term (months)"),
-        ("income", "Monthly income"),
+        ("loan_amount", input_label("loan_amount")),
+        ("term", input_label("term")),
+        ("income", input_label("income")),
         ("Credit_Score", "Credit score"),
     ]
     stats = "".join(
@@ -950,7 +976,7 @@ def _render_review(
             provided = sum(answers.get(name) is not None for name in names)
             with column.expander(f"{title} · {provided}/{len(names)} provided", expanded=False):
                 rows = "".join(
-                    f'<div><dt>{escape(friendly_label(name))}</dt>'
+                    f'<div><dt>{escape(input_label(name))}</dt>'
                     f'<dd>{escape(display_value(name, answers.get(name)))}</dd></div>'
                     for name in names
                 )
@@ -983,7 +1009,7 @@ def _render_result(result: dict[str, Any]) -> None:
         )
     st.markdown(
         f'<section class="loan-result-card loan-result--{outcome_class}" '
-        'aria-live="polite"><div class="loan-result-label">Prediction</div>'
+        'aria-live="polite"><div class="loan-result-label">Predicted repayment outcome</div>'
         f'<h3>{escape(outcome)}</h3></section>'
         f'<div class="loan-probability-grid">{probability_cards}</div>',
         unsafe_allow_html=True,
