@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+import tomllib
 from typing import Any
 
 import pytest
@@ -12,6 +14,15 @@ from frontend.app import (
     group_for_field,
     submit_prediction,
 )
+
+
+def test_streamlit_uses_viewer_toolbar_without_deploy_control() -> None:
+    config_path = Path(__file__).parents[1] / ".streamlit" / "config.toml"
+
+    with config_path.open("rb") as config_file:
+        config = tomllib.load(config_file)
+
+    assert config["client"]["toolbarMode"] == "viewer"
 
 
 class FakeResponse:
