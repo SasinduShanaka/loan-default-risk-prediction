@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from frontend.app import (
     NOT_PROVIDED,
     NOT_PROVIDED_LABEL,
     REVIEW_STEP,
+    STYLES,
     build_steps,
     columnize,
     display_value,
@@ -24,6 +26,7 @@ from frontend.app import (
     input_label,
     missing_required,
     parse_number,
+    run,
     sort_fields,
     step_titles,
 )
@@ -107,6 +110,31 @@ def start_app(
     return app
 
 
+def complete_applicant(
+    app: AppTest, gender: str = "Male", age: str = "25-34"
+) -> None:
+    app.selectbox[0].set_value(gender).run()
+    app.selectbox[1].set_value(age).run()
+
+
+def go_to_loan(app: AppTest) -> None:
+    complete_applicant(app)
+    app.button(key="nav_next").click().run()
+
+
+def complete_loan(
+    app: AppTest, loan_amount: str = "296500", term: str = "360"
+) -> None:
+    app.text_input[0].set_value(loan_amount).run()
+    app.text_input[1].set_value(term).run()
+
+
+def go_to_review(app: AppTest) -> None:
+    go_to_loan(app)
+    complete_loan(app)
+    app.button(key="nav_next").click().run()
+
+
 def recording_post(observed: dict[str, Any]) -> Any:
     def fake_post(url: str, *, json: dict[str, Any], timeout: float) -> FakeResponse:
         observed.update(json)
@@ -156,12 +184,12 @@ def test_step_titles_end_with_the_review_step() -> None:
     assert titles == ["Applicant Information", "Loan Information", REVIEW_STEP]
 
 
-def test_initial_answers_start_from_metadata_defaults() -> None:
+def test_initial_answers_start_blank() -> None:
     assert initial_answers(stepper_metadata()) == {
-        "Gender": "Male",
-        "age": "25-34",
-        "loan_amount": 296500.0,
-        "term": 360.0,
+        "Gender": None,
+        "age": None,
+        "loan_amount": None,
+        "term": None,
     }
 
 
@@ -326,7 +354,16 @@ def test_only_the_current_step_is_rendered(monkeypatch: pytest.MonkeyPatch) -> N
     app = start_app(monkeypatch)
 
     assert [box.label for box in app.selectbox] == ["Gender", "Age"]
+    assert [box.value for box in app.selectbox] == [None, None]
     assert len(app.text_input) == 0
+    assert len(app.warning) == 0
+    assert app.button(key="nav_next").label == "Next →"
+    assert app.button(key="nav_next").disabled
+
+
+def test_disabled_next_button_has_explicit_readable_styles() -> None:
+    assert ".st-key-nav_next button:disabled" in STYLES
+    assert ".st-key-nav_next button:disabled p" in STYLES
 
 
 def test_no_field_uses_a_separate_blank_checkbox(
@@ -336,6 +373,7 @@ def test_no_field_uses_a_separate_blank_checkbox(
     app = start_app(monkeypatch)
     assert len(app.checkbox) == 0
 
+    complete_applicant(app)
     app.button(key="nav_next").click().run()
 
     assert len(app.checkbox) == 0
@@ -350,7 +388,15 @@ def test_no_dropdown_offers_a_not_provided_option(
 
     assert NOT_PROVIDED_LABEL not in required.options
     assert NOT_PROVIDED_LABEL not in model_nullable.options
-    assert model_nullable.value == "25-34"
+    assert model_nullable.value is None
+
+
+def test_step_headers_do_not_allow_section_jumping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = start_app(monkeypatch)
+
+    assert all(app.button(key=f"step_{index}").disabled for index in range(3))
 
 
 def test_next_advances_and_back_restores_the_earlier_answer(
@@ -359,6 +405,7 @@ def test_next_advances_and_back_restores_the_earlier_answer(
     app = start_app(monkeypatch)
 
     app.selectbox[0].set_value("Female").run()
+    app.selectbox[1].set_value("25-34").run()
     app.button(key="nav_next").click().run()
 
     assert [field.label for field in app.text_input] == [
@@ -380,8 +427,10 @@ def test_answers_from_every_step_reach_the_prediction_request(
     monkeypatch.setattr(requests, "post", recording_post(observed))
 
     app.selectbox[0].set_value("Female").run()
+    app.selectbox[1].set_value("25-34").run()
     app.button(key="nav_next").click().run()
     app.text_input[0].set_value("123456").run()
+    app.text_input[1].set_value("360").run()
     app.button(key="nav_next").click().run()
     app.button(key="predict").click().run()
 
@@ -391,68 +440,112 @@ def test_answers_from_every_step_reach_the_prediction_request(
         "loan_amount": 123456.0,
         "term": 360.0,
     }
-    assert app.metric[0].value == "1"
+    result_html = "\n".join(block.value for block in app.markdown)
+    assert "loan-result--failure" in result_html
+    assert "The borrower failed to meet the repayment obligation" in result_html
+    assert "Probability of repayment failure" in result_html
+    assert "75.00%" in result_html
+    assert "Probability of normal repayment" in result_html
+    assert "25.00%" in result_html
+    assert len(app.metric) == 0
 
 
-def test_clearing_model_nullable_number_blocks_progress(
+def test_class_zero_result_uses_normal_repayment_wording(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = start_app(
+        monkeypatch,
+        prediction={
+            "predicted_class": 0,
+            "probability_class_0": 0.8,
+            "probability_class_1": 0.2,
+            "model": "XGBoost",
+        },
+    )
+
+    go_to_review(app)
+    app.button(key="predict").click().run()
+
+    result_html = "\n".join(block.value for block in app.markdown)
+    assert "loan-result--normal" in result_html
+    assert "Repayments were handled normally" in result_html
+    assert "Probability of repayment failure" in result_html
+    assert "20.00%" in result_html
+    assert "Probability of normal repayment" in result_html
+    assert "80.00%" in result_html
+    assert len(app.metric) == 0
+
+
+def test_result_cards_have_responsive_layout_styles() -> None:
+    assert ".loan-result-card" in STYLES
+    assert ".loan-probability-grid" in STYLES
+    assert "grid-template-columns: 1fr" in STYLES
+
+
+def test_missing_model_nullable_number_quietly_blocks_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = start_app(monkeypatch)
 
-    app.button(key="nav_next").click().run()
-    app.text_input[1].set_value("").run()
+    go_to_loan(app)
+    app.text_input[0].set_value("296500").run()
 
-    assert any("Term" in block.value for block in app.warning)
+    assert len(app.warning) == 0
     assert app.button(key="nav_next").disabled
 
 
-def test_clearing_a_required_number_blocks_progress(
+def test_missing_required_number_quietly_blocks_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = start_app(monkeypatch)
 
-    app.button(key="nav_next").click().run()
-    app.text_input[0].set_value("").run()
+    go_to_loan(app)
+    app.text_input[1].set_value("360").run()
 
-    assert any("Loan Amount" in block.value for block in app.warning)
+    assert len(app.warning) == 0
     assert app.button(key="nav_next").disabled
 
 
-def test_missing_required_value_blocks_prediction(
+def test_incomplete_section_cannot_reach_prediction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = start_app(monkeypatch)
 
-    app.button(key="nav_next").click().run()
-    app.text_input[0].set_value("").run()
-    app.button(key="step_2").click().run()
-
-    assert any("still missing" in block.value for block in app.warning)
-    assert app.button(key="predict").disabled
+    assert app.button(key="nav_next").disabled
+    assert app.button(key="step_1").disabled
+    assert app.button(key="step_2").disabled
+    assert not any(button.key == "predict" for button in app.button)
 
 
-def test_step_indicator_flags_an_incomplete_earlier_step(
+def test_step_indicator_marks_a_completed_earlier_step(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = start_app(monkeypatch)
 
-    app.button(key="nav_next").click().run()
-    app.text_input[0].set_value("").run()
-    app.button(key="step_2").click().run()
+    go_to_loan(app)
 
-    assert app.button(key="step_1").label.startswith("! ")
     assert app.button(key="step_0").label.startswith("✓ ")
+    assert all(app.button(key=f"step_{index}").disabled for index in range(3))
 
 
-def test_step_indicator_jumps_straight_to_review(
+def test_completed_sections_advance_sequentially_to_review(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = start_app(monkeypatch)
 
-    app.button(key="step_2").click().run()
+    go_to_review(app)
 
     assert any(REVIEW_STEP in block.value for block in app.subheader)
     assert not app.button(key="predict").disabled
+
+
+def test_review_actions_render_after_the_application_details() -> None:
+    source = inspect.getsource(run)
+
+    assert 'key="review_actions"' in source
+    assert source.index("_render_review(steps, answers)") < source.index(
+        'key="review_actions"'
+    )
 
 
 def test_failed_prediction_shows_the_service_message(
@@ -467,23 +560,22 @@ def test_failed_prediction_shows_the_service_message(
         ),
     )
 
-    app.button(key="step_2").click().run()
+    go_to_review(app)
     app.button(key="predict").click().run()
 
     assert any("Invalid value for Gender" in block.value for block in app.error)
 
 
-def test_start_over_returns_to_the_first_step_with_defaults(
+def test_start_over_returns_to_a_blank_first_step(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = start_app(monkeypatch)
 
-    app.selectbox[0].set_value("Female").run()
-    app.button(key="step_2").click().run()
+    go_to_review(app)
     app.button(key="predict").click().run()
     app.button(key="start_over").click().run()
 
-    assert app.selectbox[0].value == "Male"
+    assert [box.value for box in app.selectbox] == [None, None]
 
 
 # --- numeric text entry ---------------------------------------------------
@@ -535,8 +627,9 @@ def test_typed_amount_keeps_its_thousands_separator(
     app = start_app(monkeypatch)
     monkeypatch.setattr(requests, "post", recording_post(observed))
 
-    app.button(key="nav_next").click().run()
+    go_to_loan(app)
     app.text_input[0].set_value("1,250,000").run()
+    app.text_input[1].set_value("360").run()
     app.button(key="nav_next").click().run()
     app.button(key="predict").click().run()
 
@@ -548,7 +641,7 @@ def test_unreadable_amount_is_flagged_and_blocks_progress(
 ) -> None:
     app = start_app(monkeypatch)
 
-    app.button(key="nav_next").click().run()
+    go_to_loan(app)
     app.text_input[0].set_value("about 300k").run()
 
     assert any("Enter a positive number" in block.value for block in app.caption)
@@ -562,23 +655,26 @@ def test_unreadable_amount_does_not_overwrite_the_last_good_value(
     app = start_app(monkeypatch)
     monkeypatch.setattr(requests, "post", recording_post(observed))
 
-    app.button(key="nav_next").click().run()
+    go_to_loan(app)
     app.text_input[0].set_value("about 300k").run()
     app.text_input[0].set_value("250000").run()
+    app.text_input[1].set_value("360").run()
     app.button(key="nav_next").click().run()
     app.button(key="predict").click().run()
 
     assert observed["loan_amount"] == 250000.0
 
 
-def test_numeric_fields_are_seeded_from_the_schema_defaults(
+def test_numeric_fields_start_blank(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = start_app(monkeypatch)
 
+    app.selectbox[0].set_value("Male").run()
+    app.selectbox[1].set_value("25-34").run()
     app.button(key="nav_next").click().run()
 
-    assert [field.value for field in app.text_input] == ["296,500", "360"]
+    assert [field.value for field in app.text_input] == ["", ""]
 
 
 # --- chrome ---------------------------------------------------------------
