@@ -138,7 +138,7 @@ LABEL_SUFFIXES: dict[str, str] = {
 # Credit_Worthiness stay as-is rather than inventing a meaning for them.
 VALUE_LABELS: dict[str, dict[str, str]] = {
     "loan_limit": {"cf": "Conforming", "ncf": "Non-conforming"},
-    "Gender": {"Sex Not Available": "Not available"},
+    "Gender": {"Sex Not Available": "Other"},
     "approv_in_adv": {"pre": "Pre-approved", "nopre": "Not pre-approved"},
     "open_credit": {"opc": "Has open credit", "nopc": "No open credit"},
     "business_or_commercial": {
