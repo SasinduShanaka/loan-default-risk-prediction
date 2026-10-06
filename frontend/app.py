@@ -301,6 +301,16 @@ STYLES = """
     color: #FFFFFF;
     font-weight: 700;
 }
+.st-key-nav_next button:disabled {
+    background: #E4EAEC;
+    border-color: #C9D7DA;
+    opacity: 1;
+    cursor: not-allowed;
+}
+.st-key-nav_next button:disabled p {
+    color: #607078;
+    font-weight: 700;
+}
 [data-testid="stButton"] button:focus-visible {
     outline: 3px solid #FF5B04; outline-offset: 3px;
 }
@@ -388,9 +398,58 @@ STYLES = """
     margin: 0; text-align: right; font-weight: 600; color: var(--loan-ink);
     overflow-wrap: anywhere;
 }
+.loan-result-card {
+    padding: 1.4rem 1.5rem;
+    border: 1px solid var(--loan-line);
+    border-left-width: 6px;
+    border-radius: 12px;
+    margin: 0.35rem 0 1rem;
+}
+.loan-result--normal {
+    background: #E5F1F2;
+    border-left-color: var(--loan-teal);
+}
+.loan-result--failure {
+    background: #FFF0E8;
+    border-left-color: var(--loan-orange);
+}
+.loan-result-label,
+.loan-probability-card span {
+    color: var(--loan-muted);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.loan-result-card h3 {
+    color: var(--loan-ink);
+    font-size: clamp(1.35rem, 2.4vw, 2rem);
+    line-height: 1.25;
+    margin: 0.45rem 0 0;
+    overflow-wrap: anywhere;
+}
+.loan-probability-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+.loan-probability-card {
+    background: #FFFFFF;
+    border: 1px solid var(--loan-line);
+    border-radius: 12px;
+    padding: 1.15rem 1.25rem;
+}
+.loan-probability-card strong {
+    display: block;
+    color: var(--loan-ink);
+    font-size: 1.8rem;
+    margin-top: 0.35rem;
+}
 @media (max-width: 740px) {
     .st-key-stepper [data-testid="stHorizontalBlock"]::before { top: 22px; }
     .loan-review-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .loan-probability-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
     .st-key-stepper [data-testid="stHorizontalBlock"]::before {
@@ -501,8 +560,7 @@ def step_titles(steps: list[tuple[str, list[str]]]) -> list[str]:
 
 
 def initial_answers(metadata: dict[str, Any]) -> dict[str, Any]:
-    fields = metadata["fields"]
-    return {name: fields[name].get("default") for name in metadata["expected_features"]}
+    return {name: None for name in metadata["expected_features"]}
 
 
 def missing_required(
@@ -752,16 +810,14 @@ def _render_category_field(
 ) -> tuple[Any, bool]:
     key = f"value_{name}"
     options = list(field["allowed_values"])
-    if key not in st.session_state:
-        if stored in options:
-            st.session_state[key] = stored
-        else:
-            default = field.get("default")
-            st.session_state[key] = default if default in options else options[0]
+    if key not in st.session_state and stored in options:
+        st.session_state[key] = stored
     chosen = st.selectbox(
         input_label(name),
         options=options,
+        index=None,
         key=key,
+        placeholder="Select an option",
         format_func=lambda value: display_value(name, value),
         help=field_help(name, field),
     )
@@ -785,7 +841,7 @@ def _goto_step(index: int) -> None:
 def _render_step_indicator(
     titles: list[str], current: int, incomplete: set[int]
 ) -> None:
-    """Draw the clickable step header; already-captured answers let users jump."""
+    """Draw a visual step header without allowing sections to be skipped."""
     with st.container(key="stepper"):
         for column, (index, title) in zip(st.columns(len(titles)), enumerate(titles)):
             if index >= current:
@@ -794,14 +850,13 @@ def _render_step_indicator(
                 marker = "! "
             else:
                 marker = "✓ "
-            if column.button(
+            column.button(
                 f"{marker}{index + 1}. {title}",
                 key=f"step_{index}",
-                disabled=index == current,
+                disabled=True,
                 type="primary" if index == current else "secondary",
                 use_container_width=True,
-            ):
-                _goto_step(index)
+            )
     st.caption(f"Step {current + 1} of {len(titles)} — {titles[current]}")
 
 
@@ -878,20 +933,33 @@ def _render_review(
 
 def _render_result(result: dict[str, Any]) -> None:
     st.subheader("Prediction Result")
-    st.success("Prediction completed successfully.")
+    outcome = {
+        0: "Repayments were handled normally",
+        1: "The borrower failed to meet the repayment obligation",
+    }[result["predicted_class"]]
+    outcome_class = "normal" if result["predicted_class"] == 0 else "failure"
     class_one_probability = result.get("probability_class_1")
     class_zero_probability = result.get("probability_class_0")
-    columns = st.columns(3)
-    columns[0].metric("Predicted Class", str(result["predicted_class"]))
+    probability_cards = ""
     if class_one_probability is not None:
-        columns[1].metric(
-            "Probability of Class 1", f"{float(class_one_probability):.2%}"
+        probability_cards += (
+            '<article class="loan-probability-card">'
+            '<span>Probability of repayment failure</span>'
+            f'<strong>{float(class_one_probability):.2%}</strong></article>'
         )
-        st.progress(min(max(float(class_one_probability), 0.0), 1.0))
     if class_zero_probability is not None:
-        columns[2].metric(
-            "Probability of Class 0", f"{float(class_zero_probability):.2%}"
+        probability_cards += (
+            '<article class="loan-probability-card">'
+            '<span>Probability of normal repayment</span>'
+            f'<strong>{float(class_zero_probability):.2%}</strong></article>'
         )
+    st.markdown(
+        f'<section class="loan-result-card loan-result--{outcome_class}" '
+        'aria-live="polite"><div class="loan-result-label">Prediction</div>'
+        f'<h3>{escape(outcome)}</h3></section>'
+        f'<div class="loan-probability-grid">{probability_cards}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 def _reset_stepper(metadata: dict[str, Any]) -> None:
@@ -964,11 +1032,6 @@ def run() -> None:
             st.caption(GROUP_INTROS.get(title, ""))
             rejected = _render_step_fields(names, metadata, answers)
             outstanding = missing_required(names, fields, answers)
-            if outstanding:
-                st.warning(
-                    "Enter a value for: "
-                    + ", ".join(friendly_label(name) for name in outstanding)
-                )
             _render_navigation(current, blocked=bool(outstanding or rejected))
         else:
             outstanding = missing_required(
@@ -980,35 +1043,36 @@ def run() -> None:
                     + ", ".join(friendly_label(name) for name in outstanding)
                     + ". Use the steps above to complete them."
                 )
-            heading_column, predict_column = st.columns(
-                [3, 1], vertical_alignment="center"
+            st.subheader(REVIEW_STEP)
+            st.caption(
+                "Complete the missing details to generate your prediction."
+                if outstanding else "Your application is ready for prediction."
             )
-            with heading_column:
-                st.subheader(REVIEW_STEP)
-                st.caption(
-                    "Complete the missing details to generate your prediction."
-                    if outstanding else "Your application is ready for prediction."
-                )
-            if predict_column.button(
-                "Predict Loan Status",
-                key="predict",
-                type="primary",
-                disabled=bool(outstanding),
-                use_container_width=True,
-            ):
-                try:
-                    with st.spinner("Generating prediction..."):
-                        st.session_state["result"] = submit_prediction(
-                            base_url, dict(answers)
-                        )
-                    st.session_state.pop("error", None)
-                except FrontendServiceError as exc:
-                    st.session_state.pop("result", None)
-                    st.session_state["error"] = str(exc)
-
             _render_review(steps, answers)
-            if st.button("← Back", key="review_back"):
-                _goto_step(current - 1)
+            with st.container(key="review_actions"):
+                back_column, _, predict_column = st.columns(
+                    [1, 2, 1], vertical_alignment="center"
+                )
+                if back_column.button(
+                    "← Back", key="review_back", use_container_width=True
+                ):
+                    _goto_step(current - 1)
+                if predict_column.button(
+                    "Predict Loan Status",
+                    key="predict",
+                    type="primary",
+                    disabled=bool(outstanding),
+                    use_container_width=True,
+                ):
+                    try:
+                        with st.spinner("Generating prediction..."):
+                            st.session_state["result"] = submit_prediction(
+                                base_url, dict(answers)
+                            )
+                        st.session_state.pop("error", None)
+                    except FrontendServiceError as exc:
+                        st.session_state.pop("result", None)
+                        st.session_state["error"] = str(exc)
 
             if st.session_state.get("error"):
                 st.error(st.session_state["error"])
