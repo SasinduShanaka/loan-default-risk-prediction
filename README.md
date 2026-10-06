@@ -4,7 +4,7 @@
 
 This repository contains a binary loan-status classification project and its end-to-end demonstration application. A Streamlit interface collects raw applicant and loan details, a FastAPI service validates them, and the supplied fitted pipeline applies its original preprocessing before producing an XGBoost class prediction and probabilities.
 
-The application deliberately reports only **Class 0** or **Class 1**. The available project documentation does not confirm the business meaning of the two `Status` values.
+The interface displays a predicted repayment outcome using the project owner's supplied meanings: class 0 is “Repayments were handled normally” and class 1 is “The borrower failed to meet the repayment obligation.” Numeric classes remain in API responses.
 
 ## 2. Academic Context
 
@@ -70,11 +70,13 @@ The artifact was serialized with scikit-learn 1.6.1. The verified runtime uses P
 
 The Streamlit frontend retrieves the exact input schema from FastAPI and builds:
 
-- seven numeric inputs;
-- 21 categorical dropdowns using fitted encoder values; and
-- explicit missing-value controls for fields handled by trained imputers.
+- six numeric inputs and an automatically calculated, read-only LTV percentage;
+- 21 categorical dropdowns with readable labels where meanings are known; and
+- blank initial fields, required entries, and sequential navigation.
 
-Clicking **Predict Loan Status** sends raw JSON to FastAPI. The UI displays the predicted class and the probabilities of Classes 0 and 1 without assigning unverified business meanings.
+Clicking **Predict Loan Status** sends raw JSON to FastAPI. The UI displays the predicted repayment outcome and both probabilities in responsive cards. Editing an input clears the previous prediction. Missing entries quietly disable Next; malformed numeric entries receive inline feedback.
+
+Set `LOAN_CURRENCY` before starting Streamlit to label monetary fields and review values with the confirmed currency (for example, `$env:LOAN_CURRENCY = "USD"` in PowerShell). No currency is assumed when this setting is absent. This setting only labels values; it does not convert them. Loan amount, property value, and monthly income must use the same currency and units expected by the model.
 
 ## 9. System Architecture
 
