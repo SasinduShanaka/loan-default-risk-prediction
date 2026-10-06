@@ -1,4 +1,7 @@
 # Mirage, Blaze Orange, Deep Sea Green, and Wild Sand palette.
+[client]
+toolbarMode = "viewer"
+
 [theme]
 base = "light"
 primaryColor = "#FF5B04"
