@@ -247,6 +247,7 @@ def test_four_columns_halve_the_rows_of_the_largest_step() -> None:
         ("loan_type", "type1", "type1"),
         ("loan_purpose", "p3", "p3"),
         ("Credit_Worthiness", "l1", "l1"),
+        ("Gender", "Sex Not Available", "Other"),
         ("Gender", None, NOT_PROVIDED_LABEL),
         ("Gender", NOT_PROVIDED, NOT_PROVIDED_LABEL),
     ],
