@@ -213,7 +213,7 @@ STYLES = """
 }
 [data-testid="stAppViewContainer"] { background: #E4EEF0; }
 [data-testid="stAppHeader"] { background: #E4EEF0; }
-[data-testid="stDeployButton"], [data-testid="stMainMenu"] { display: none; }
+[data-testid="stMainMenu"] { display: none; }
 [data-testid="stMainBlockContainer"] {
     max-width: 1320px;
     padding-top: 3.5rem;
