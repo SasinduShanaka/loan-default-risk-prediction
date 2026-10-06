@@ -9,6 +9,7 @@ import pytest
 import requests
 from streamlit.testing.v1 import AppTest
 
+import frontend.app as frontend_app
 from frontend.app import (
     COLUMNS_PER_ROW,
     NOT_PROVIDED,
@@ -73,6 +74,27 @@ def stepper_metadata() -> dict[str, Any]:
             },
         },
     }
+
+
+def ltv_metadata() -> dict[str, Any]:
+    metadata = stepper_metadata()
+    metadata["expected_features"].extend(["property_value", "LTV"])
+    metadata["numeric_features"].extend(["property_value", "LTV"])
+    metadata["fields"].update(
+        {
+            "property_value": {
+                "type": "number",
+                "nullable": True,
+                "default": 250000.0,
+            },
+            "LTV": {
+                "type": "number",
+                "nullable": True,
+                "default": 80.0,
+            },
+        }
+    )
+    return metadata
 
 
 def prediction_payload() -> dict[str, Any]:
@@ -141,6 +163,45 @@ def recording_post(observed: dict[str, Any]) -> Any:
         return FakeResponse(200, prediction_payload())
 
     return fake_post
+
+
+@pytest.mark.parametrize(
+    ("loan_amount", "property_value", "expected"),
+    [
+        (200000, 250000, 80.0),
+        (150000, 300000, 50.0),
+        (None, 250000, None),
+        (200000, None, None),
+        (200000, 0, None),
+        (200000, -1, None),
+    ],
+)
+def test_calculate_ltv_uses_loan_and_property_values(
+    loan_amount: Any, property_value: Any, expected: float | None
+) -> None:
+    assert frontend_app.calculate_ltv(loan_amount, property_value) == expected
+
+
+def test_property_step_calculates_read_only_ltv_and_submits_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, Any] = {}
+    app = start_app(monkeypatch, metadata=ltv_metadata())
+    monkeypatch.setattr(requests, "post", recording_post(observed))
+
+    go_to_loan(app)
+    complete_loan(app, loan_amount="200000", term="12")
+    app.button(key="nav_next").click().run()
+    app.text_input[0].set_value("250000").run()
+
+    assert app.text_input[1].label == "Loan-to-Value Ratio (%)"
+    assert app.text_input[1].disabled
+    assert app.text_input[1].value == "80.00"
+
+    app.button(key="nav_next").click().run()
+    app.button(key="predict").click().run()
+
+    assert observed["LTV"] == 80.0
 
 
 # --- grouping and ordering ------------------------------------------------
