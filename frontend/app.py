@@ -588,6 +588,20 @@ def parse_number(raw: str) -> tuple[float | None, bool]:
     return value, True
 
 
+def calculate_ltv(loan_amount: Any, property_value: Any) -> float | None:
+    """Calculate loan-to-value percentage when both source values are usable."""
+    for value in (loan_amount, property_value):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, numbers.Real)
+            or not math.isfinite(float(value))
+        ):
+            return None
+    if float(loan_amount) <= 0 or float(property_value) <= 0:
+        return None
+    return float(loan_amount) / float(property_value) * 100
+
+
 def format_number_input(value: Any) -> str:
     """Seed a numeric text box without losing precision on a round trip."""
     if value is None:
@@ -885,6 +899,20 @@ def _render_step_fields(
     for column, chunk in zip(st.columns(len(chunks), gap="medium"), chunks):
         with column:
             for name in chunk:
+                if name == "LTV":
+                    value = calculate_ltv(
+                        answers.get("loan_amount"), answers.get("property_value")
+                    )
+                    st.text_input(
+                        "Loan-to-Value Ratio (%)",
+                        value="" if value is None else f"{value:.2f}",
+                        disabled=True,
+                        help="Calculated automatically from loan amount and property value.",
+                    )
+                    answers[name] = value
+                    if value is None:
+                        rejected.append(name)
+                    continue
                 value, accepted = _render_field(
                     name, metadata["fields"][name], answers.get(name)
                 )
